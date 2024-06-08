@@ -1,0 +1,171 @@
+version: '3'
+
+services:
+  kafka:
+    image: 'bitnami/kafka:latest'
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://kafka:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+    ports:
+      - '9092:9092'
+      - '9094:9094'
+    networks:
+      - bitnami
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topic.sh", "--list", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+  
+  kafka-ui:
+    container_name: kafka-ui-1
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 8000:8080
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: PLAINTEXT://kafka:9092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - bitnami
+    healthcheck:
+      test: ["CMD-SHELL", "curl", "-f", "localhost:8080"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+  
+
+  spark:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    volumes:
+      - ./src/spark_pgsql:/opt/spark-apps
+      - ./spark/requirements.txt:/opt/requirements.txt
+    ports:
+      - '8081:8080'
+    networks:
+      - bitnami
+    healthcheck:
+      test: ["CMD-SHELL", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+  
+  postgresql:
+    image: 'bitnami/postgresql:latest'
+    environment:
+      - POSTGRESQL_DATABASE=postgres
+      - POSTGRESQL_USERNAME=tranhuy3
+      - POSTGRESQL_PASSWORD=tranhuy3
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres
+      - POSTGRESQL_PORT_NUMBER=5432
+    ports:
+      - '5432:5432'
+    networks:
+      - bitnami
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRESQL_USERNAME -d $POSTGRESQL_DATABASE"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: 'bitnami/redis:latest'
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    networks:
+      - bitnami
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli", "info", "|", "grep", "redis_version"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  airflow-worker:
+    build:
+      context: ./airflow_resources
+      dockerfile: Dockerfile-Worker
+    depends_on:
+      - airflow
+    volumes:
+      - ./src/kafka_client:/opt/bitnami/airflow/dags
+    environment:
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_DATABASE_NAME=postgres
+      - AIRFLOW_DATABASE_USERNAME=tranhuy3
+      - AIRFLOW_DATABASE_PASSWORD=tranhuy3
+      - AIRFLOW_WEBSERVER_HOST=airflow
+      - AIRFLOW_LOAD_EXAMPLES=no
+    networks:
+      - bitnami
+    healthcheck:
+      test: ["CMD-SHELL", "airflow celery status"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+  airflow-scheduler:
+    build:
+      context: ./airflow_resources
+      dockerfile: Dockerfile-Scheduler
+    depends_on:
+      - airflow
+    volumes:
+      - ./src/kafka_client:/opt/bitnami/airflow/dags
+    environment:
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_DATABASE_NAME=postgres
+      - AIRFLOW_DATABASE_USERNAME=tranhuy3
+      - AIRFLOW_DATABASE_PASSWORD=tranhuy3
+      - AIRFLOW_WEBSERVER_HOST=airflow
+      - AIRFLOW_LOAD_EXAMPLES=no
+    networks:
+      - bitnami
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname $(hostname)"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+  airflow:
+    build:
+      context: ./airflow_resources
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
+    volumes:
+      - ./src/kafka_client:/opt/bitnami/airflow/dags
+    environment:
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_DATABASE_NAME=postgres
+      - AIRFLOW_DATABASE_USERNAME=tranhuy3
+      - AIRFLOW_DATABASE_PASSWORD=tranhuy3
+      - AIRFLOW_PASSWORD=admin
+      - AIRFLOW_USERNAME=admin
+      - AIRFLOW_EMAIL=tranhuy1597@gmail.com
+
+    ports:
+      - '8080:8080'
+    networks:
+      - bitnami
+
+networks:
+  bitnami:
+    driver: 'bridge'

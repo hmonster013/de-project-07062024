@@ -1,0 +1,7 @@
+FROM bitnami/airflow:latest
+
+COPY requirements.txt /opt/requirements.txt
+
+RUN source /opt/bitnami/airflow/venv/bin/activate \
+    pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /opt/requirements.txt
